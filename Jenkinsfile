@@ -13,7 +13,6 @@ pipeline {
 
     MAIL_TO ='anshulv1401@gmail.com'
   }
-  agent {label 'backendapi-java'}
   stages {
 	stage('Maven Build') {
       steps{
