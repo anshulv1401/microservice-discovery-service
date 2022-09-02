@@ -1,11 +1,17 @@
 pipeline {
   environment {
-    registry = "nara1983/jenkinsdockerimage"
-    DOCKERHUB_CREDENTIALS=credentials('dockerhub')
-    dockerImage = 'microservice-discovery-service'
-    containername = 'microservice-discovery-service'
-    MAIL_TO ='kesavannarayanan@gmail.com,lobomalcon@gmail.com,sangramsahutech@gmail.com,anshulv1401@gmail.com,akshit.baunthy@gmail.com'
-	PORT='8761'
+    AWS_ACCOUNT_ID="101075526478"
+    AWS_DEFAULT_REGION="us-east-1" 
+    CLUSTER_NAME="ecs-demo-cluster-test"
+    SERVICE_NAME="ecs-demo-service-test"
+    TASK_DEFINITION_NAME="ecs-terraform-demo"
+    DESIRED_COUNT="4"
+    IMAGE_REPO_NAME="ecs-demo-test"
+    IMAGE_TAG="${env.BUILD_ID}"
+    REPOSITORY_URI = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com/${IMAGE_REPO_NAME}"
+    registryCredential = "demo-admin-user"
+
+    MAIL_TO ='anshulv1401@gmail.com'
   }
   agent {label 'backendapi-java'}
   stages {
@@ -20,58 +26,36 @@ pipeline {
         }
       }
     }
-	stage('Remove Docker container') {
-      steps{
-		script {
-			def contid = sh(script: "sudo docker ps --no-trunc -aqf name=${containername}",returnStdout: true)
-                        echo "contid: " + "${contid}"
-			if("${contid}" != ''){
-			    sh "echo inside delete container"
-				sh "sudo docker rm -f ${contid}"
-			}
-		 }
+  // Building Docker images
+  stage('Building image') {
+    steps{
+      script {
+        dockerImage = docker.build "${IMAGE_REPO_NAME}:${IMAGE_TAG}"
       }
     }
-	stage('Remove Docker image') {
-      steps{
-	  dir("${env.WORKSPACE}"){
-		script {
-			def imageExists = sh(script: "sudo docker images -q ${registry}:${dockerImage}",returnStdout: true)
-            echo "Image Name: " + "${imageExists}"
-			if("${imageExists}" != ''){
-			    sh "echo inside delete block"
-				sh "sudo docker rmi ${imageExists}"
-			}
-		 }
-		}
-      }
-    }
-	stage('Building Docker image') {
-      steps{
-	  dir("${env.WORKSPACE}"){
-		sh "pwd"
-		sh 'sudo docker build -f Dockerfile -t ${registry}:${dockerImage} .'
-		}
-      }
-    }
-	stage('Run Docker container') {
-      steps{
-	  script {
-		sh "pwd"
-		sh "sudo docker run -it -d --name ${containername} -p ${PORT}:${PORT} ${registry}:${dockerImage}"
-		}
-      }
-    }
-	 stage('Push to Docker Hub') {
-      steps{
-        script {
-          sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
-          sh 'docker push $registry:$dockerImage'
-         
+  }
+
+  // Uploading Docker images into AWS ECR
+  stage('Pushing to ECR') {
+    steps{  
+      script {
+        docker.withRegistry("https://" + REPOSITORY_URI, "ecr:${AWS_DEFAULT_REGION}:" + registryCredential) {
+            dockerImage.push()
         }
       }
     }
-   }
+  }
+
+  stage('Deploy') {
+    steps{
+      withAWS(credentials: registryCredential, region: "${AWS_DEFAULT_REGION}") {
+        script {
+              sh './script.sh'
+            }
+        } 
+      }
+    }
+  }
 	post{
         always{
 	    mail to:"${MAIL_TO}",
